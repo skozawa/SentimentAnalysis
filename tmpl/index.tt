@@ -2,7 +2,7 @@
 
 <h1 style="text-align: center">Sentiment Analysis for Tweets</h1>
 
-<form action="" method="post">
+<form action="/" method="post">
   検索: <input type="text" name="query" id="query" [% IF query %]value="[% query %]"[% END %]>
 </form>
 
@@ -28,6 +28,10 @@
     </tr>
     [% END %]
   </table>
+
+  [% IF query %]
+  <a href="?query=[% query %]&page=[% page + 1 %]" rel="next">次</a>
+  [% END %]
 </div>
 
 [% END %]

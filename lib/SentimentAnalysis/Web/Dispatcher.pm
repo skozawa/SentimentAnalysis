@@ -9,10 +9,11 @@ any '/' => sub {
     my ($c) = @_;
 
     my $query = $c->req->param('query');
+    my $page = $c->req->param('page') || 1;
     my $tweets;
     if ( $query ) {
         my $nt = $c->twitter;
-        my $r = $nt->search($query);
+        my $r = $nt->search($query, { page => $page });
         $tweets = $r->{results};
         $c->mrph_analysis($tweets);
     }
@@ -20,6 +21,7 @@ any '/' => sub {
     $c->render('index.tt', {
         query  => $query,
         tweets => $tweets,
+        page => $page,
     });
 };
 
