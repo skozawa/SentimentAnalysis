@@ -4,11 +4,107 @@ use warnings;
 use utf8;
 use parent qw/SentimentAnalysis Amon2::Web/;
 use File::Spec;
+use Net::Twitter::Lite;
+use Text::MeCab;
+use TokyoTyrant;
+use DateTime;
+use DateTime::Format::DateParse;
+use Data::Dumper;
+use Encode;
 
 # dispatcher
 use SentimentAnalysis::Web::Dispatcher;
 sub dispatch {
     return (SentimentAnalysis::Web::Dispatcher->dispatch($_[0]) or die "response is not generated");
+}
+
+# nt
+sub twitter {
+    my $c = shift;
+    my $nt = Net::Twitter::Lite->new(
+        consumer_key    => $c->config->{Auth}{Twitter}{consumer_key},
+        consumer_secret => $c->config->{Auth}{Twitter}{consumer_secret},
+        );
+    $nt->access_token($c->session->get('access_token'));
+    $nt->access_token_secret($c->session->get('access_token_secret'));
+    return $nt;
+}
+
+sub mrph_analysis {
+    my ($c, $tweets) = @_;
+
+    my $mecab = Text::MeCab->new(
+        dicdir => "/usr/local/unidic/dic/unidic-mecab",
+    );
+    my $rdb = TokyoTyrant::RDB->new();
+    if ( !$rdb->open($c->config->{TokyoTyrant}{host}, $c->config->{TokyoTyrant}{port}) ) {
+        die "open error: ", $rdb->errmsg($rdb->ecode());
+    }
+
+    foreach my $tweet ( @$tweets ) {
+        $tweet->{positive} = 0;
+        $tweet->{negative} = 0;
+        my @mrphs;
+        my $node = $mecab->parse($tweet->{text});
+        do {
+            my @features = split /,/, $node->feature;
+            my $polarity = 0;
+            if ( my $value = $rdb->get($features[7]) ) {
+                $polarity = $value;
+            } elsif ( $value = $rdb->get($features[12]) ) {
+                $polarity = $value;
+            }
+            my $text = $node->surface;
+            if ($polarity) {
+                $text = '<span =class"';
+                if ( $polarity == 1 ) {
+                    $text .= 'positive';
+                } else {
+                    $text .= 'negative';
+                }
+                $text .= '">' .$node->surface.'</span>';
+            }
+            push @mrphs, {
+                surface => $node->surface,
+                text => $text,
+                lemma   => $features[7],
+                lemma_reading => $features[12],
+                polarity => $polarity,
+            };
+            if ( $polarity == 2 ) {
+                $tweet->{positive}++;
+            } elsif ( $polarity == 1 ) {
+                $tweet->{negative}++;
+            }
+        } while ( $node = $node->next );
+
+        for my $n ( 2 .. 6 ) {
+            for my $i ( 0 .. $#mrphs-$n ) {
+                my @surfaces;
+                my @lemmas;
+                map { push @surfaces, $_->{surface} || ' ';
+                      push @lemmas, $_->{lemma} || $_->{surface} || ' ';
+                  } @mrphs[$i..$i+$n];
+                my $value;
+                if ( ($value = $rdb->get( join " ", @lemmas )) ||
+                     ($value = $rdb->get( join " ", @surfaces )) ){
+                    $mrphs[$_]->{polarity} = $value for $i .. $n;
+                    if ( $value == 2 ) {
+                        $tweet->{positive}++;
+                    } elsif ( $value == 1 ) {
+                        $tweet->{negative}++;
+                    }
+                }
+            }
+        }
+
+        $tweet->{mrphs} = \@mrphs;
+        $tweet->{created} = DateTime::Format::DateParse->parse_datetime($tweet->{created_at});
+    }
+
+    if ( !$rdb->close() ) {
+        die "close error: ", $rdb->errmsg($rdb->ecode());
+    }
 }
 
 # setup view class

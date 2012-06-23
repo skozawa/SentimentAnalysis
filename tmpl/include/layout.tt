@@ -39,7 +39,6 @@
             [% content %]
         </div>
         <footer class="footer">
-            Powered by <a href="http://amon.64p.org/">Amon2</a>
         </footer>
     </div>
 </body>
